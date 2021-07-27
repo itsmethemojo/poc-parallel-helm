@@ -1,0 +1,9 @@
+dependencies:
+- name: adminer
+  repository: https://cetic.github.io/helm-charts
+  version: 0.1.6
+- name: consul
+  repository: https://helm.releases.hashicorp.com
+  version: 0.32.1
+digest: sha256:d89e3ddc9ff303af339fb662cbf25708c8ddfbe734eccf3a1059ce3cc8824f28
+generated: "2021-07-25T23:37:47.3929647+02:00"

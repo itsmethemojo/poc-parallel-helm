@@ -1,0 +1,62 @@
+---
+  - name: "Playing with Ansible and Git"
+    hosts: localhost
+    connection: local
+    vars:
+      unique_charts: {}
+    tasks:
+
+    - set_fact:
+        chart_yaml_data: "{{ (lookup('template', lookup('env', 'CHART') + '/Chart.yaml')|from_yaml) }}"
+
+    - set_fact:
+        values_yaml_data: "{{ (lookup('template', lookup('env', 'CHART') + '/values.yaml')|from_yaml) }}"
+
+    - name: "clear charts folder"
+      shell: "rm -rf {{ lookup('env', 'CHART') }}/charts/*"
+
+    - name: "clear charts folder"
+      shell: "rm -rf {{ lookup('env', 'CHART') }}/log && mkdir -p {{ lookup('env', 'CHART') }}/log"
+
+    - name: "reduce charts to unique list"
+      set_fact:
+        unique_charts: "{{ unique_charts | combine({item.name + '-' + item.version + '-' + item.repository: item}) }}"
+      with_items: "{{ chart_yaml_data.dependencies }}"
+
+    - debug: var=unique_charts
+
+    # this replaces a helm dependency update with parallel running helm fetch commands
+    # TODO strip list from duplicates
+    - name: "helm fetch chart"
+      shell: "helm fetch --version {{ item.value.version }} -d {{ lookup('env', 'CHART') }}/charts --repo {{ item.value.repository }} {{ item.value.name }} >> {{ lookup('env', 'CHART') }}/log/stage1_{{ item.value.name }}-{{ item.value.version }}.log 2>&1"
+      loop: "{{ unique_charts | dict2items }}"
+      async: 60
+      poll: 0
+      register: fetch_results
+
+    - name: "wait finish helm fetch chart"
+      async_status:
+        jid: "{{item.ansible_job_id}}"
+        mode: status
+      retries: 11 #???
+      delay: 1
+      loop: "{{fetch_results.results}}"
+      register: fetch_results_loop_jobs
+      until: fetch_results_loop_jobs.finished
+
+    - name: "helm upgrade"
+      shell: "helm upgrade --install -n {{ lookup('env', 'NAMESPACE') }} {{ lookup('env', 'NAMESPACE') }}-{{ item.alias | default(item.name) }} {{ lookup('env', 'CHART') }}/charts/{{ item.name }}-{{ item.version }}.tgz >> {{ lookup('env', 'CHART') }}/log/stage2_{{ item.alias | default(item.name) }}.log 2>&1"
+      loop: "{{ chart_yaml_data.dependencies }}"
+      async: 60
+      poll: 0
+      register: upgrade_results
+
+    - name: "wait finish helm upgrade"
+      async_status:
+        jid: "{{item.ansible_job_id}}"
+        mode: status
+      retries: 11 #???
+      delay: 1
+      loop: "{{upgrade_results.results}}"
+      register: upgrade_results_loop_jobs
+      until: upgrade_results_loop_jobs.finished
